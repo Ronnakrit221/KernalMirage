@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import joblib, tempfile, os, numpy as np
 from audio_utils import compute_esd_bands, LABEL_MAP
 import traceback
+from pathlib import Path
 
 MODEL_DIR = os.getenv("MODEL_DIR", "model")
 CLF_PATH = os.path.join(MODEL_DIR, "esd_svm_linear.pkl")
@@ -35,6 +36,27 @@ ALLOWED_TYPES = {
     "audio/flac", "audio/ogg", "audio/x-ogg"
 }
 
+CONTENT_TYPE_TO_EXT = {
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/x-m4a": ".m4a",
+    "audio/aac": ".aac",
+    "audio/flac": ".flac",
+    "audio/ogg": ".ogg",
+    "audio/x-ogg": ".ogg",
+}
+
+def guess_extension(file: UploadFile) -> str:
+
+    if file.filename:
+        ext = Path(file.filename).suffix
+        if ext:
+            return ext.lower()
+    return CONTENT_TYPE_TO_EXT.get(file.content_type, ".wav")
+
+
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
     if file.content_type not in ALLOWED_TYPES:
@@ -42,8 +64,9 @@ async def predict(file: UploadFile = File(...)):
 
     tmp_path = None
     try:
+        suffix = guess_extension(file)
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             data = await file.read()
             if not data:
                 raise HTTPException(status_code=400, detail="Empty file")
@@ -51,7 +74,6 @@ async def predict(file: UploadFile = File(...)):
             tmp.write(data)
             tmp.flush()
             tmp_path = tmp.name
-
 
         esd_vec, sr = compute_esd_bands(tmp_path, n_bands=22, max_freq=22000, to_mono=True)
 
